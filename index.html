@@ -1,0 +1,1257 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="format-detection" content="telephone=no">
+<title>Red neuronal VR - Simulador Clinico</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #03030a; height: 100%; }
+  #loading {
+    position: fixed; inset: 0; z-index: 9999; background: #03030a;
+    color: #6ee8ff; display: flex; align-items: center; justify-content: center;
+    font-family: system-ui, sans-serif; font-size: 16px; letter-spacing: 2px;
+    transition: opacity 0.6s; flex-direction: column; gap: 16px; text-align: center; padding: 0 24px;
+  }
+  #loading.hidden { opacity: 0; pointer-events: none; }
+  .pulse { width: 60px; height: 60px; border: 3px solid #6ee8ff; border-radius: 50%;
+    animation: pulse 1.5s ease-in-out infinite; }
+  @keyframes pulse {
+    0%, 100% { transform: scale(0.8); opacity: 0.4; }
+    50% { transform: scale(1.1); opacity: 1; }
+  }
+  #vrui {
+    position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+    z-index: 500; display: flex; flex-direction: column; align-items: center;
+    gap: 8px; width: min(92vw, 560px); font-family: system-ui, sans-serif;
+  }
+  #vrStatus {
+    font-size: 12px; line-height: 1.35; text-align: center; padding: 6px 12px;
+    border-radius: 14px; background: rgba(10,18,38,0.92); border: 1px solid #1a2340;
+    color: #8fa3c8;
+  }
+  #vrStatus.ok { color: #66bb6a; border-color: #2e7d32; }
+  #vrStatus.warn { color: #ffd54f; border-color: #7a5a00; }
+  #vrui .fila { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  #vrui button, #btnSalirGafas {
+    font-family: system-ui, sans-serif; font-size: 12px; letter-spacing: 1px;
+    color: #fff; background: #1e88e5; border: 0; border-radius: 16px;
+    padding: 9px 14px; cursor: pointer;
+  }
+  #vrui button.sec { background: #37474f; }
+  #btnSalirGafas {
+    position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+    z-index: 600; display: none; opacity: 0.6; background: #37474f;
+  }
+  body.gafas #vrui { display: none; }
+  body.gafas #btnSalirGafas { display: block; }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="pulse"></div>
+  <div id="loadingMsg">CARGANDO RED NEURONAL</div>
+</div>
+
+<div id="vrui">
+  <div id="vrStatus">Iniciando sensores...</div>
+  <div class="fila">
+    <button id="btnGyro">ACTIVAR GIROSCOPIO</button>
+    <button id="btnCentrar" class="sec">RECENTRAR</button>
+    <button id="btnGafas">MODO GAFAS</button>
+  </div>
+</div>
+<button id="btnSalirGafas">SALIR DE GAFAS</button>
+
+<template id="tplEscena">
+<a-scene
+  background="color: #03030a"
+  fog="type: exponential; color: #03030a; density: 0.012"
+  renderer="antialias: true"
+  vr-mode-ui="enabled: true; cardboardModeEnabled: true"
+  device-orientation-permission-ui="enabled: false">
+
+  <a-entity light="type: hemisphere; color: #4a7fff; groundColor: #0a0a1a; intensity: 0.9"></a-entity>
+  <a-light type="point" color="#00ffff" intensity="0.8" position="0 5 2" distance="25"></a-light>
+  <a-light type="point" color="#ff00ff" intensity="0.5" position="-7 2 -4" distance="25"></a-light>
+  <a-light type="point" color="#00ff88" intensity="0.4" position="7 2 -4" distance="25"></a-light>
+
+  <a-entity id="starfield"></a-entity>
+  <a-entity id="floor"></a-entity>
+
+  <!-- RED NEURONAL (se construye por codigo) -->
+  <a-entity id="net" neural-net position="0 0 -7.3"></a-entity>
+
+  <!-- ============ PANTALLA DE INICIO ============ -->
+  <a-entity id="uiIntro" position="0 1.6 -1.5" visible="true">
+    <a-plane width="2.4" height="2.0" color="#0a1226" opacity="0.94"></a-plane>
+    <a-plane width="2.4" height="0.05" color="#6ee8ff" position="0 0.97 0.01" opacity="0.8"></a-plane>
+    <a-text value="RED NEURONAL DEL CODIGO" position="0 0.80 0.01" align="center"
+            color="#6ee8ff" width="2.1"></a-text>
+    <a-text id="introSub" value="Simulador Clinico VR" position="0 0.60 0.01"
+            align="center" color="#6a7a99" width="1.6"></a-text>
+
+    <a-plane width="2.1" height="0.95" color="#0d1a30" opacity="0.9" position="0 0.02 0.005"></a-plane>
+    <a-text value="COMO SE USA" position="0 0.38 0.01" align="center" color="#88ddff" width="1.0"></a-text>
+    <a-text
+      value="Cada esfera es un concepto tecnico del codigo. Las particulas de colores muestran como se conectan y fluyen entre ellos. Deja el cursor del centro 1 segundo sobre una esfera (o haz clic) para abrirla."
+      position="0 0.04 0.01" align="center" color="#c8d4ea" width="1.95"
+      wrap-count="46" line-height="30"></a-text>
+    <a-text
+      value="El panel con la explicacion y el codigo aparece a tu derecha. Gira la cabeza para leerlo."
+      position="0 -0.28 0.01" align="center" color="#ffd54f" width="1.95"
+      wrap-count="46" line-height="30"></a-text>
+
+    <a-entity id="btnIniciar" class="clk-intro"
+              position="0 -0.72 0.01"
+              geometry="primitive: plane; width: 1.2; height: 0.24"
+              material="shader: standard; color: #1e88e5; emissive: #1e88e5; emissiveIntensity: 0.3; side: double">
+      <a-text value="INICIAR" position="0 0 0.01" align="center" color="#ffffff" width="0.9"></a-text>
+    </a-entity>
+  </a-entity>
+
+  <!-- ============ PANEL LATERAL ============ -->
+  <a-entity id="uiPanel" position="3.3 1.8 -2.8" rotation="0 -50 0" visible="false">
+    <a-plane width="2.1" height="2.6" color="#0a1226" opacity="0.97"></a-plane>
+    <a-plane id="panelBar" width="2.1" height="0.05" color="#6ee8ff" position="0 1.275 0.01" opacity="0.9"></a-plane>
+
+    <a-text id="panelTitle" value="SELECCIONA UN NODO" position="-0.95 1.1 0.01"
+            anchor="left" align="left" color="#6ee8ff" width="1.35"></a-text>
+    <a-text id="panelLayer" value="" position="0.95 1.1 0.01"
+            anchor="right" align="right" color="#8fa3c8" width="0.85"></a-text>
+
+    <a-entity id="tabExp" class="clk-panel" position="-0.5 0.89 0.01"
+              geometry="primitive: plane; width: 0.9; height: 0.18"
+              material="shader: standard; color: #1e88e5; emissive: #1e88e5; emissiveIntensity: 0.45; side: double">
+      <a-text value="EXPLICACION" position="0 0 0.01" align="center" color="#ffffff" width="0.8"></a-text>
+    </a-entity>
+    <a-entity id="tabCode" class="clk-panel" position="0.5 0.89 0.01"
+              geometry="primitive: plane; width: 0.9; height: 0.18"
+              material="shader: standard; color: #37474f; emissive: #37474f; emissiveIntensity: 0.2; side: double">
+      <a-text value="CODIGO" position="0 0 0.01" align="center" color="#ffffff" width="0.7"></a-text>
+    </a-entity>
+
+    <a-text id="panelBody"
+            value="Mira una esfera durante 1 segundo para ver aqui que concepto tecnico representa, su codigo y con que otros conceptos se conecta."
+            position="-0.93 0.68 0.01" anchor="left" baseline="top" align="left"
+            color="#e0e8ff" width="1.86" wrap-count="40" line-height="36"></a-text>
+
+    <a-text id="panelConn" value="" position="0 -0.85 0.01" align="center"
+            color="#8fa3c8" width="1.9" wrap-count="64" line-height="30"></a-text>
+
+    <a-entity id="btnInicio" class="clk-panel" position="-0.68 -1.15 0.01"
+              geometry="primitive: plane; width: 0.6; height: 0.17"
+              material="shader: standard; color: #37474f; emissive: #37474f; emissiveIntensity: 0.2; side: double">
+      <a-text value="INICIO" position="0 0 0.01" align="center" color="#ffffff" width="0.5"></a-text>
+    </a-entity>
+    <a-entity id="btnPrev" class="clk-panel" position="0 -1.15 0.01"
+              geometry="primitive: plane; width: 0.6; height: 0.17"
+              material="shader: standard; color: #1e88e5; emissive: #1e88e5; emissiveIntensity: 0.3; side: double">
+      <a-text value="ANTERIOR" position="0 0 0.01" align="center" color="#ffffff" width="0.55"></a-text>
+    </a-entity>
+    <a-entity id="btnNext" class="clk-panel" position="0.68 -1.15 0.01"
+              geometry="primitive: plane; width: 0.6; height: 0.17"
+              material="shader: standard; color: #2e7d32; emissive: #2e7d32; emissiveIntensity: 0.35; side: double">
+      <a-text value="SIGUIENTE" position="0 0 0.01" align="center" color="#ffffff" width="0.55"></a-text>
+    </a-entity>
+  </a-entity>
+
+  <!-- ============ CAMARA + CURSOR POR MIRADA (fuse) ============ -->
+  <a-entity id="rig" gyro-rig position="0 1.6 0">
+  <a-entity id="camera" camera look-controls="pointerLockEnabled: false; magicWindowTrackingEnabled: false" position="0 0 0">
+    <a-cursor id="fuseCursor"
+              fuse="true" fuse-timeout="1000"
+              raycaster="objects: .clk-intro; far: 40"
+              geometry="primitive: ring; radiusInner: 0.014; radiusOuter: 0.028"
+              material="color: #00ffff; shader: flat; opacity: 1"
+              animation__fusing="property: scale; from: 1 1 1; to: 1.7 1.7 1.7; dur: 1000; startEvents: fusing"
+              animation__reset="property: scale; to: 1 1 1; dur: 150; startEvents: mouseleave">
+    </a-cursor>
+    <a-entity geometry="primitive: circle; radius: 0.005"
+              material="color: #00ffff; shader: flat; opacity: 1"></a-entity>
+    <a-entity id="mouseCursor" cursor="rayOrigin: mouse; fuse: false"
+              raycaster="objects: .clk-intro; far: 40"></a-entity>
+  </a-entity>
+  </a-entity>
+
+</a-scene>
+</template>
+
+<script>
+function iniciar() {
+
+/* =========================================================
+   COMPONENTES BASE (los mismos del simulador)
+   ========================================================= */
+AFRAME.registerComponent('starfield', {
+  init: function() {
+    const count = 700;
+    const positions = new Float32Array(count * 3);
+    const colors = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      const r = 14 + Math.random() * 26;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI;
+      positions[i*3]     = r * Math.sin(phi) * Math.cos(theta);
+      positions[i*3 + 1] = Math.abs(r * Math.cos(phi)) * 0.7 + 1;
+      positions[i*3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+      const c = 0.5 + Math.random() * 0.5;
+      colors[i*3]     = c * (0.6 + Math.random() * 0.4);
+      colors[i*3 + 1] = c * (0.8 + Math.random() * 0.2);
+      colors[i*3 + 2] = c;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    const mat = new THREE.PointsMaterial({
+      size: 0.12, sizeAttenuation: true, vertexColors: true,
+      transparent: true, opacity: 0.8, depthWrite: false
+    });
+    this.el.setObject3D('starfield', new THREE.Points(geo, mat));
+  }
+});
+
+AFRAME.registerComponent('grid-floor', {
+  init: function() {
+    const grid = new THREE.GridHelper(50, 100, 0x00ffff, 0x0a3a4a);
+    grid.material.transparent = true;
+    grid.material.opacity = 0.22;
+    grid.position.y = 0.01;
+    this.el.setObject3D('grid', grid);
+  }
+});
+
+/* =========================================================
+   GIROSCOPIO PROPIO: lee deviceorientation y gira el "rig"
+   (la camara queda dentro; el arrastre con el dedo se suma encima)
+   ========================================================= */
+AFRAME.registerComponent('gyro-rig', {
+  init: function() {
+    this.hayDatos = false;
+    this.fuente = '';          // 'deviceorientation' | 'absolute' | 'sensor'
+    this.a = 0; this.b = 0; this.g = 0;
+    this.sensorQ = null;       // cuaternion crudo del Generic Sensor API
+    this.sensor = null;
+    this.necesitaCentrar = true;
+    this.q = new THREE.Quaternion();
+    this.qYaw = new THREE.Quaternion();
+    this.euler = new THREE.Euler();
+    this.q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+    this.q0 = new THREE.Quaternion();
+    this.zee = new THREE.Vector3(0, 0, 1);
+    this.yAxis = new THREE.Vector3(0, 1, 0);
+
+    // Acepta deviceorientation y deviceorientationabsolute (en algunos
+    // Chrome/Android solo llega uno de los dos). Si alpha es null se usa 0.
+    this.mkOri = (nombre) => (e) => {
+      if (e.beta == null || e.gamma == null) return;
+      if (this.fuente === 'sensor') return;
+      if (this.fuente && this.fuente !== nombre) return; // quedarse con una sola fuente
+      this.fuente = nombre;
+      this.hayDatos = true;
+      this.a = e.alpha == null ? 0 : e.alpha;
+      this.b = e.beta; this.g = e.gamma;
+    };
+    this.onOri = this.mkOri('deviceorientation');
+    this.onAbs = this.mkOri('absolute');
+    window.addEventListener('deviceorientation', this.onOri, true);
+    window.addEventListener('deviceorientationabsolute', this.onAbs, true);
+  },
+
+  // Plan B: Generic Sensor API (RelativeOrientationSensor), mas fiable en Chrome Android
+  iniciarSensor: function() {
+    if (this.sensor || typeof RelativeOrientationSensor === 'undefined') return false;
+    try {
+      const s = new RelativeOrientationSensor({ frequency: 60, referenceFrame: 'screen' });
+      s.addEventListener('reading', () => {
+        if (!s.quaternion) return;
+        if (!this.sensorQ) this.sensorQ = new THREE.Quaternion();
+        this.sensorQ.fromArray(s.quaternion);
+        this.fuente = 'sensor';
+        this.hayDatos = true;
+      });
+      s.addEventListener('error', (ev) => {
+        console.warn('[gyro] RelativeOrientationSensor error:', ev.error && ev.error.name);
+        this.sensor = null;
+      });
+      s.start();
+      this.sensor = s;
+      return true;
+    } catch (err) {
+      console.warn('[gyro] no se pudo crear RelativeOrientationSensor:', err);
+      return false;
+    }
+  },
+
+  recentrar: function() { this.necesitaCentrar = true; },
+
+  tick: function() {
+    if (!this.hayDatos) return;
+    const D = Math.PI / 180;
+
+    if (this.fuente === 'sensor' && this.sensorQ) {
+      // referenceFrame 'screen' ya incluye la rotacion de pantalla
+      this.q.copy(this.sensorQ);
+      this.q.multiply(this.q1);
+    } else {
+      const ang = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+      this.euler.set(this.b * D, this.a * D, -this.g * D, 'YXZ');
+      this.q.setFromEuler(this.euler);
+      this.q.multiply(this.q1);
+      this.q.multiply(this.q0.setFromAxisAngle(this.zee, -ang * D));
+    }
+
+    // Recentrar: guarda el giro horizontal actual y lo cancela
+    if (this.necesitaCentrar) {
+      this.euler.setFromQuaternion(this.q, 'YXZ');
+      this.qYaw.setFromAxisAngle(this.yAxis, -this.euler.y);
+      this.necesitaCentrar = false;
+    }
+    this.q.premultiply(this.qYaw);
+    this.el.object3D.quaternion.copy(this.q);
+  }
+});
+
+/* =========================================================
+   DATOS: 5 capas, 43 nodos, conexiones
+   (texto sin tildes: la fuente de A-Frame no dibuja bien las tildes)
+   ========================================================= */
+const CAPAS = {
+  1: { nombre: 'Lenguajes',  color: '#00ffff' },
+  2: { nombre: 'Web APIs',   color: '#ff88cc' },
+  3: { nombre: 'Three.js',   color: '#ffd54f' },
+  4: { nombre: 'A-Frame',    color: '#88ddff' },
+  5: { nombre: 'Aplicacion', color: '#ff2255' }
+};
+
+const NODOS = [
+  /* ================= CAPA 1: LENGUAJES ================= */
+  { id: 'html5', capa: 1, label: 'HTML5',
+    exp: `Lenguaje de marcado: define la estructura de la pagina. Aqui contiene las etiquetas de A-Frame (a-scene, a-entity, a-text) que describen toda la escena 3D de forma declarativa.`,
+    codigo: `<!DOCTYPE html>
+<html lang="es">
+<a-scene>
+  <a-entity id="body"></a-entity>
+</a-scene>` },
+
+  { id: 'css3', capa: 1, label: 'CSS3',
+    exp: `Estilos de la pagina 2D: el overlay de carga, el circulo que pulsa y la transicion de opacidad. Usa @keyframes para animar y flexbox para centrar el texto.`,
+    codigo: `@keyframes pulse {
+  0%, 100% { transform: scale(0.8); }
+  50% { transform: scale(1.1); }
+}
+#loading { display: flex; }` },
+
+  { id: 'js', capa: 1, label: 'JS ES6+',
+    exp: `JavaScript moderno: const y let, funciones flecha, desestructuracion y Object.assign. Es el lenguaje que controla toda la logica del juego y construye los componentes de A-Frame.`,
+    codigo: `const $ = id =>
+  document.getElementById(id);
+STATE.casoActual = Object.assign(
+  {}, CASOS[id], { id: id });` },
+
+  { id: 'glsl', capa: 1, label: 'GLSL',
+    exp: `Lenguaje de los shaders, programas que corren en la GPU. El proyecto no escribe GLSL a mano: Three.js lo usa por dentro para calcular luces, colores y transparencias de cada material.`,
+    codigo: `// No hay GLSL escrito a mano.
+// Se activa al declarar un material:
+material="shader: standard;
+  color: #ff2255;
+  emissive: #ff2255"` },
+
+  { id: 'json', capa: 1, label: 'JSON / datos',
+    exp: `Formato de datos con pares clave-valor. Los casos clinicos y los organos se guardan con esta estructura, separada de la logica del programa.`,
+    codigo: `// clave: valor
+{ organo: 'pulmon',
+  patologia: 'Neumonia lobar',
+  imagen: 'caso_pulmon_1',
+  pistas: [ '...', '...', '...' ] }` },
+
+  /* ================= CAPA 2: WEB APIs ================= */
+  { id: 'webgl', capa: 2, label: 'WebGL',
+    exp: `API de bajo nivel para dibujar en la GPU desde el navegador. Three.js crea el contexto WebGL y envia a la GPU cada malla, luz y textura de la escena.`,
+    codigo: `renderer="antialias: true;
+  colorManagement: true"
+// A-Frame crea el contexto
+// WebGL por ti` },
+
+  { id: 'canvas2d', capa: 2, label: 'Canvas 2D',
+    exp: `Permite dibujar y leer pixeles. Se usa para copiar la imagen cargada y convertirla en dataURL (texto base64), asi A-Frame la recibe como texto y evita problemas de CORS.`,
+    codigo: `const c = document.createElement(
+  'canvas');
+ctx.drawImage(testImg, 0, 0);
+const dataURL =
+  c.toDataURL('image/png');` },
+
+  { id: 'dom', capa: 2, label: 'DOM',
+    exp: `Document Object Model: el arbol de elementos de la pagina. Con getElementById y setAttribute el codigo muestra u oculta cada pantalla y cambia los textos en vivo.`,
+    codigo: `$('uiMenu').setAttribute(
+  'visible', name === 'menu');
+document.querySelectorAll('.organ');` },
+
+  { id: 'imageapi', capa: 2, label: 'Image()',
+    exp: `Objeto nativo que carga una imagen sin mostrarla. Es asincrono: avisa con onload cuando llega o con onerror si no existe, y entonces el codigo prueba otra extension.`,
+    codigo: `const testImg = new Image();
+testImg.onload = () => { ... };
+testImg.onerror = () => tryNext();
+testImg.src = url;` },
+
+  { id: 'events', capa: 2, label: 'addEventListener',
+    exp: `Sistema de eventos del navegador. El programa espera avisos (click, load) y ejecuta funciones cuando ocurren. El click tambien lo genera el cursor de mirada tras 1 segundo.`,
+    codigo: `el.addEventListener('click', fn);
+
+window.addEventListener('load', () => {
+  // arrancar el simulador
+});` },
+
+  { id: 'deviceorient', capa: 2, label: 'DeviceOrientation',
+    exp: `API del giroscopio y acelerometro del celular. look-controls la usa por dentro para girar la camara cuando mueves la cabeza. En iPhone pide permiso al usuario.`,
+    codigo: `device-orientation-permission-ui=
+  "enabled: true"
+// look-controls lee el giroscopio` },
+
+  { id: 'webxr', capa: 2, label: 'WebXR',
+    exp: `Estandar del navegador para realidad virtual y aumentada. A-Frame lo usa para el modo inmersivo y para dividir la pantalla en dos vistas, una por ojo, en Cardboard.`,
+    codigo: `vr-mode-ui="enabled: true;
+  cardboardModeEnabled: true"` },
+
+  { id: 'math', capa: 2, label: 'Math',
+    exp: `El objeto Math de JavaScript: random para el azar, sin y cos para trigonometria, floor para redondear. Genera las estrellas sobre una esfera y baraja los casos.`,
+    codigo: `const theta =
+  Math.random() * Math.PI * 2;
+x = r * Math.sin(phi) * Math.cos(theta);` },
+
+  /* ================= CAPA 3: THREE.JS ================= */
+  { id: 'object3d', capa: 3, label: 'Object3D',
+    exp: `Nodo base del grafo de escena de Three.js: camaras, luces y mallas heredan de el. Cada entidad de A-Frame tiene uno en el.object3D, con position, rotation y scale.`,
+    codigo: `const root = this.el.object3D;
+root.traverse(obj => {
+  obj.renderOrder = 999;
+});` },
+
+  { id: 'buffergeo', capa: 3, label: 'BufferGeometry',
+    exp: `Geometria guardada en buffers que van directo a la GPU. El starfield llena un Float32Array con las posiciones de las estrellas y lo sube de una vez: muy eficiente.`,
+    codigo: `const positions =
+  new Float32Array(count * 3);
+const geo =
+  new THREE.BufferGeometry();
+geo.setAttribute('position',
+  new THREE.BufferAttribute(
+    positions, 3));` },
+
+  { id: 'points', capa: 3, label: 'Points',
+    exp: `Objeto que dibuja una nube de puntos, uno por vertice. Con PointsMaterial se obtienen todas las estrellas del fondo como un solo objeto, sin crear cientos de esferas.`,
+    codigo: `const mat = new THREE.PointsMaterial({
+  size: 0.06, vertexColors: true,
+  transparent: true, opacity: 0.9
+});
+new THREE.Points(geo, mat);` },
+
+  { id: 'gridhelper', capa: 3, label: 'GridHelper',
+    exp: `Ayudante de Three.js que dibuja una cuadricula de lineas. Se usa como piso holografico y se vuelve semitransparente para que parezca una rejilla de luz.`,
+    codigo: `const grid = new THREE.GridHelper(
+  30, 60, 0x00ffff, 0x0a3a4a);
+grid.material.transparent = true;
+grid.material.opacity = 0.25;` },
+
+  { id: 'matrix4', capa: 3, label: 'Matrix4',
+    exp: `Matriz de 4x4 que guarda posicion, rotacion y escala juntas. Es implicita: cuando escribes position, rotation o scale, Three.js las combina en esta matriz para enviarla a la GPU.`,
+    codigo: `// Tres atributos, una matriz:
+position="0 0.01 -2"
+rotation="-90 0 0"
+scale="1 1 1"` },
+
+  { id: 'vector3', capa: 3, label: 'Vector3',
+    exp: `Vector de tres numeros (x, y, z) para posiciones, direcciones y rayos. A-Frame lo usa por dentro; el proyecto lo usa al escribir coordenadas como "0 1.6 -1.4".`,
+    codigo: `position="0 1.6 -1.4"
+// equivale a
+// new THREE.Vector3(0, 1.6, -1.4)` },
+
+  { id: 'quaternion', capa: 3, label: 'Quaternion',
+    exp: `Forma de representar rotaciones con 4 numeros, sin el bloqueo de cardan (gimbal lock). look-controls la usa para girar la camara con suavidad usando el giroscopio.`,
+    codigo: `look-controls=
+  "pointerLockEnabled: false"
+// la camara gira con un
+// Quaternion interno` },
+
+  { id: 'raycaster', capa: 3, label: 'Raycaster',
+    exp: `Lanza un rayo invisible desde el cursor y calcula que objetos toca. setPantalla cambia la lista de objetos tocables en cada pantalla, asi solo responden los botones visibles.`,
+    codigo: `raycaster="objects: .clickable-menu;
+  far: 10"
+$('fuseCursor').setAttribute(
+  'raycaster', 'objects', selector);` },
+
+  { id: 'renderer', capa: 3, label: 'WebGLRenderer',
+    exp: `Motor de dibujo de Three.js: en cada cuadro convierte la escena en ordenes para la GPU. En modo VR dibuja dos veces, una por ojo.`,
+    codigo: `renderer="antialias: true;
+  colorManagement: true;
+  physicallyCorrectLights: true"` },
+
+  { id: 'pcamera', capa: 3, label: 'PerspectiveCamera',
+    exp: `Camara con perspectiva: lo lejano se ve mas pequeno, igual que en el ojo. Proyecta los puntos 3D del mundo a la pantalla 2D. En VR hay una por ojo.`,
+    codigo: `<a-entity id="camera" camera
+  look-controls
+  position="0 1.6 0">
+</a-entity>` },
+
+  /* ================= CAPA 4: A-FRAME ================= */
+  { id: 'ascene', capa: 4, label: '<a-scene>',
+    exp: `Raiz de la escena. Inicia el renderer, el fondo, la niebla (fog) y el boton de modo VR, y recorre todos los hijos en cada cuadro.`,
+    codigo: `<a-scene
+  background="color: #03030a"
+  fog="type: exponential;
+    density: 0.05"
+  vr-mode-ui="enabled: true">` },
+
+  { id: 'aentity', capa: 4, label: '<a-entity>',
+    exp: `Contenedor generico: una entidad vacia a la que se agregan componentes. Los organos, botones y paneles del simulador son entidades con geometria, material y eventos.`,
+    codigo: `<a-entity class="organ"
+  data-organ="cerebro"
+  position="0 1.72 0"
+  geometry="primitive: sphere;
+    radius: 0.085">` },
+
+  { id: 'atext', capa: 4, label: '<a-text>',
+    exp: `Dibuja texto como geometria 3D dentro de la escena. wrap-count define cuantos caracteres caben por linea y line-height la separacion entre lineas.`,
+    codigo: `<a-text id="caseText"
+  align="center" width="2.1"
+  wrap-count="48"
+  line-height="34"></a-text>` },
+
+  { id: 'aimage', capa: 4, label: '<a-image>',
+    exp: `Plano con una textura de imagen. Muestra la radiografia o tomografia de cada organo; su src recibe el dataURL que prepara Canvas 2D.`,
+    codigo: `<a-image id="diagImage"
+  width="1.45" height="1.0"
+  visible="false"></a-image>
+imgEl.setAttribute('src', dataURL);` },
+
+  { id: 'acursor', capa: 4, label: '<a-cursor>',
+    exp: `Punto de mira fijo en el centro de la vista. Emite eventos cuando su rayo toca un objeto y es el punto de partida de toda la interaccion en VR.`,
+    codigo: `<a-cursor id="fuseCursor"
+  fuse="true"
+  fuse-timeout="1000"
+  geometry="primitive: ring">` },
+
+  { id: 'look', capa: 4, label: 'look-controls',
+    exp: `Rota la camara con el mouse o con el giroscopio del celular. Es lo que permite mirar alrededor dentro de la escena.`,
+    codigo: `<a-entity camera
+  look-controls=
+    "pointerLockEnabled: false"
+  position="0 1.6 0">` },
+
+  { id: 'fuse', capa: 4, label: 'fuse',
+    exp: `Cursor por mirada: si el rayo permanece 1000 ms sobre un objeto, se genera un click solo. Asi las gafas VR funcionan sin mouse ni controles.`,
+    codigo: `fuse="true"
+fuse-timeout="1000"
+animation__fusing=
+  "property: scale;
+   from: 1 1 1; to: 1.7 1.7 1.7;
+   dur: 1000; startEvents: fusing"` },
+
+  { id: 'anim', capa: 4, label: 'animation',
+    exp: `Componente que interpola una propiedad en el tiempo. Hace girar los anillos del piso y agranda el cursor mientras el fuse cuenta el segundo.`,
+    codigo: `animation="property: rotation;
+  to: -90 360 0; dur: 12000;
+  loop: true; easing: linear"` },
+
+  { id: 'aot', capa: 4, label: 'always-on-top',
+    exp: `Componente propio: desactiva depthTest y sube el renderOrder a 999 para que las etiquetas se dibujen encima de todo, incluso detras del cuerpo holografico.`,
+    codigo: `m.depthTest = !enabled;
+m.depthWrite = !enabled;
+obj.renderOrder =
+  enabled ? 999 : 0;` },
+
+  { id: 'starfield', capa: 4, label: 'starfield',
+    exp: `Componente propio que crea las estrellas con BufferGeometry y Points. Cada posicion se calcula con coordenadas esfericas (radio y dos angulos) convertidas a x, y, z.`,
+    codigo: `const r = 8 + Math.random() * 18;
+pos[i*3] =
+  r * Math.sin(phi) * Math.cos(theta);
+this.el.setObject3D('starfield',
+  new THREE.Points(geo, mat));` },
+
+  { id: 'gridfloor', capa: 4, label: 'grid-floor',
+    exp: `Componente propio que crea el piso holografico: instancia un GridHelper y lo agrega a la entidad con setObject3D, para que A-Frame lo dibuje junto con ella.`,
+    codigo: `AFRAME.registerComponent(
+  'grid-floor', {
+  init: function() {
+    const grid =
+      new THREE.GridHelper(30, 60);
+    this.el.setObject3D('grid', grid);
+  }
+});` },
+
+  /* ================= CAPA 5: APLICACION ================= */
+  { id: 'state', capa: 5, label: 'STATE (FSM)',
+    exp: `Objeto global con el estado del juego: pantalla actual, caso, puntos, intentos y organo abierto. Es una maquina de estados finita: siempre esta en una sola pantalla.`,
+    codigo: `const STATE = {
+  pantalla: 'menu',
+  idxActual: 0,
+  puntosCaso: 4,
+  puntosTotales: 0,
+  organoAbierto: null
+};` },
+
+  { id: 'casos', capa: 5, label: 'CASOS',
+    exp: `Los 9 casos clinicos como datos: organo, patologia, imagen, texto del paciente, 3 pistas y hallazgo. Agregar un caso nuevo no obliga a cambiar la logica.`,
+    codigo: `const CASOS = {
+  pulmon_1: {
+    organo: 'pulmon',
+    patologia: 'Neumonia lobar',
+    imagen: 'caso_pulmon_1',
+    pistas: [ ... ]
+  }
+};` },
+
+  { id: 'organos', capa: 5, label: 'ORGANOS',
+    exp: `Tabla con el nombre y la imagen normal de cada organo (pulmon, corazon, cerebro). Si eliges un organo que no es el del caso, se muestra su imagen sin hallazgos.`,
+    codigo: `const ORGANOS = {
+  pulmon: { nombre: 'PULMON',
+    normal: 'normal_pulmon' },
+  corazon: { nombre: 'CORAZON',
+    normal: 'normal_corazon' }
+};` },
+
+  { id: 'setpantalla', capa: 5, label: 'setPantalla()',
+    exp: `Funcion central del flujo: muestra una sola interfaz (menu, caso, imagen...), oculta el resto y cambia que objetos puede tocar el rayo. Es el motor de la maquina de estados.`,
+    codigo: `function setPantalla(name) {
+  STATE.pantalla = name;
+  $('uiMenu').setAttribute(
+    'visible', name === 'menu');
+  $('uiCase').setAttribute(
+    'visible', name === 'case');
+}` },
+
+  { id: 'cargarimg', capa: 5, label: 'cargarImagen()',
+    exp: `Busca la imagen del caso probando jpg, jpeg, png y webp (en minuscula y mayuscula). Cuando una carga, la pasa por Canvas 2D a dataURL y la pone en el a-image.`,
+    codigo: `const exts = ['jpg', 'jpeg', 'png',
+  'webp', 'JPG', 'PNG'];
+const url = 'images/' + baseName
+  + '.' + exts[i++];
+testImg.src = url;` },
+
+  { id: 'barajar', capa: 5, label: 'barajarCasos()',
+    exp: `Reordena los casos con Fisher-Yates y luego evita que dos casos seguidos sean del mismo organo, intercambiando con el siguiente caso que sea distinto.`,
+    codigo: `const j = Math.floor(
+  Math.random() * (i + 1));
+[ids[i], ids[j]] = [ids[j], ids[i]];
+if (orgAct === orgPrev) {
+  // intercambiar con otro organo
+}` },
+
+  { id: 'confirmimg', capa: 5, label: 'confirmImage()',
+    exp: `Al pulsar ELEGIR comprueba si el organo es el correcto. Si acierta suma los puntos del caso; si falla resta uno y muestra una pista. Con 0 puntos revela la respuesta.`,
+    codigo: `const acierto = STATE.organoAbierto
+  === STATE.casoActual.organo;
+STATE.intentos++;
+if (acierto) {
+  STATE.puntosTotales +=
+    STATE.puntosCaso;
+}` },
+
+  { id: 'openorgan', capa: 5, label: 'openOrgan()',
+    exp: `Se ejecuta al seleccionar un organo del cuerpo. Decide si muestra la imagen del caso o la normal, la carga y cambia a la pantalla de imagen.`,
+    codigo: `function openOrgan(organoId) {
+  STATE.organoAbierto = organoId;
+  cargarImagen(baseName);
+  setPantalla('image');
+}` },
+
+  { id: 'bindclick', capa: 5, label: 'bindClick()',
+    exp: `Funcion auxiliar que conecta un boton con su funcion. Se llama una vez por boton al cargar la pagina, asi cada boton del simulador queda esperando su click.`,
+    codigo: `function bindClick(id, fn) {
+  const el = $(id);
+  if (!el) return;
+  el.addEventListener('click', fn);
+}
+bindClick('btnIniciar', startGame);` }
+];
+
+/* Conexiones: quien usa a quien dentro del codigo */
+const ENLACES = [
+  ['html5','dom'], ['html5','canvas2d'], ['html5','ascene'], ['html5','css3'],
+  ['css3','dom'],
+  ['js','events'], ['js','imageapi'], ['js','json'], ['js','math'], ['js','state'],
+  ['glsl','webgl'], ['json','casos'], ['json','organos'],
+  ['imageapi','canvas2d'], ['events','dom'],
+  ['webxr','deviceorient'], ['webxr','renderer'], ['deviceorient','look'],
+  ['math','starfield'], ['math','barajar'],
+  ['renderer','webgl'], ['aimage','webgl'], ['atext','webgl'],
+  ['atext','aentity'], ['aimage','aentity'], ['acursor','aentity'],
+  ['object3d','matrix4'], ['object3d','vector3'], ['object3d','quaternion'],
+  ['raycaster','vector3'], ['raycaster','matrix4'], ['matrix4','quaternion'],
+  ['pcamera','object3d'], ['pcamera','matrix4'], ['pcamera','renderer'],
+  ['ascene','pcamera'], ['ascene','object3d'], ['ascene','renderer'], ['ascene','anim'],
+  ['aentity','object3d'],
+  ['acursor','fuse'], ['acursor','raycaster'], ['fuse','raycaster'],
+  ['starfield','buffergeo'], ['starfield','points'], ['starfield','object3d'],
+  ['gridfloor','gridhelper'], ['gridfloor','object3d'],
+  ['aot','object3d'], ['anim','matrix4'], ['look','quaternion'], ['look','pcamera'],
+  ['bindclick','events'], ['bindclick','dom'],
+  ['state','setpantalla'], ['state','confirmimg'], ['state','openorgan'],
+  ['setpantalla','aentity'], ['setpantalla','raycaster'], ['setpantalla','dom'],
+  ['confirmimg','setpantalla'],
+  ['openorgan','cargarimg'], ['openorgan','organos'],
+  ['barajar','casos'], ['casos','organos'], ['casos','state'], ['casos','cargarimg'],
+  ['cargarimg','imageapi'], ['cargarimg','canvas2d'], ['cargarimg','aimage']
+];
+
+/* =========================================================
+   COMPONENTE neural-net
+   nodos + conexiones + particulas que fluyen siempre
+   ========================================================= */
+function crearTexturaPunto() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.35, 'rgba(255,255,255,0.7)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+
+AFRAME.registerComponent('neural-net', {
+  init: function() {
+    const el = this.el;
+    this.byId = {};
+    this.edges = [];
+    this.selId = null;
+    this.hoverId = null;
+    this.anyActive = false;
+
+    NODOS.forEach(n => { this.byId[n.id] = n; n.vecinos = new Set(); });
+
+    /* ---- posiciones: 5 columnas, nodos en zigzag si hay muchos ---- */
+    const porCapa = {};
+    NODOS.forEach(n => { (porCapa[n.capa] = porCapa[n.capa] || []).push(n); });
+    Object.keys(porCapa).forEach(k => {
+      const lista = porCapa[k];
+      const n = lista.length;
+      const cx = (Number(k) - 3) * 2.2;
+      const zig = n > 6;
+      const step = zig ? 0.42 : 0.7;
+      const y0 = 2.3 + (n - 1) * step / 2;
+      lista.forEach((nodo, i) => {
+        nodo.pos = { x: cx + (zig ? (i % 2 ? 0.45 : -0.45) : 0), y: y0 - i * step, z: 0 };
+      });
+    });
+
+    /* ---- titulo y leyenda de capas ---- */
+    const tit = document.createElement('a-text');
+    tit.setAttribute('value', 'RED NEURONAL DEL CODIGO');
+    tit.setAttribute('position', '0 5.9 0');
+    tit.setAttribute('align', 'center');
+    tit.setAttribute('color', '#6ee8ff');
+    tit.setAttribute('width', '5');
+    el.appendChild(tit);
+
+    Object.keys(CAPAS).forEach(k => {
+      const cx = (Number(k) - 3) * 2.2;
+      const t = document.createElement('a-text');
+      t.setAttribute('value', CAPAS[k].nombre.toUpperCase());
+      t.setAttribute('position', cx + ' 5.15 0');
+      t.setAttribute('align', 'center');
+      t.setAttribute('color', CAPAS[k].color);
+      t.setAttribute('width', '2.6');
+      el.appendChild(t);
+      const ln = document.createElement('a-plane');
+      ln.setAttribute('width', 1.6);
+      ln.setAttribute('height', 0.02);
+      ln.setAttribute('position', cx + ' 4.9 0');
+      ln.setAttribute('material', 'color: ' + CAPAS[k].color + '; opacity: 0.55; transparent: true; shader: flat');
+      el.appendChild(ln);
+    });
+
+    /* ---- conexiones (cilindros finos) ---- */
+    const group = new THREE.Group();
+    const vistos = new Set();
+    ENLACES.forEach(pair => {
+      const key = pair.slice().sort().join('|');
+      if (vistos.has(key)) return;
+      vistos.add(key);
+      const A = this.byId[pair[0]], B = this.byId[pair[1]];
+      if (!A || !B) return;
+      A.vecinos.add(B.id);
+      B.vecinos.add(A.id);
+
+      const dx = B.pos.x - A.pos.x, dy = B.pos.y - A.pos.y;
+      const L = Math.sqrt(dx * dx + dy * dy);
+      const mesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.012, 0.012, L, 5),
+        new THREE.MeshBasicMaterial({ color: 0x2a4a7a, transparent: true, opacity: 0.4 })
+      );
+      mesh.position.set((A.pos.x + B.pos.x) / 2, (A.pos.y + B.pos.y) / 2, 0);
+      mesh.rotation.z = Math.atan2(dy, dx) - Math.PI / 2;
+      group.add(mesh);
+
+      const parts = [];
+      for (let p = 0; p < 3; p++) {
+        parts.push({ t: Math.random(), speed: 0.0012 + Math.random() * 0.0028 });
+      }
+      this.edges.push({
+        a: A.id, b: B.id, A: A, B: B, mesh: mesh, parts: parts,
+        color: new THREE.Color(CAPAS[A.capa].color),
+        actColor: new THREE.Color('#ffffff'),
+        active: false, from: A.id, to: B.id
+      });
+    });
+
+    /* ---- particulas: dos nubes (normales y brillantes) ---- */
+    const tex = crearTexturaPunto();
+    const max = this.edges.length * 3;
+    const crear = (size, opacity) => {
+      const geo = new THREE.BufferGeometry();
+      const pos = new Float32Array(max * 3);
+      const col = new Float32Array(max * 3);
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      geo.setDrawRange(0, 0);
+      const mat = new THREE.PointsMaterial({
+        size: size, map: tex, vertexColors: true, transparent: true,
+        opacity: opacity, depthWrite: false, blending: THREE.AdditiveBlending,
+        sizeAttenuation: true
+      });
+      const pts = new THREE.Points(geo, mat);
+      pts.frustumCulled = false;
+      group.add(pts);
+      return { pts: pts, geo: geo, pos: pos, col: col, n: 0, mat: mat };
+    };
+    this.pAmb = crear(0.22, 0.95);
+    this.pAct = crear(0.38, 1.0);
+    el.setObject3D('network', group);
+
+    /* ---- nodos ---- */
+    NODOS.forEach(n => {
+      const color = CAPAS[n.capa].color;
+      const e = document.createElement('a-entity');
+      e.setAttribute('position', n.pos.x + ' ' + n.pos.y + ' 0');
+
+      const core = document.createElement('a-sphere');
+      core.setAttribute('radius', 0.12);
+      core.setAttribute('material',
+        'shader: standard; color: ' + color + '; emissive: ' + color +
+        '; emissiveIntensity: 0.7; opacity: 1; transparent: true');
+      e.appendChild(core);
+
+      const glow = document.createElement('a-sphere');
+      glow.setAttribute('radius', 0.2);
+      glow.setAttribute('material',
+        'shader: flat; color: ' + color + '; opacity: 0.12; transparent: true; depthWrite: false');
+      e.appendChild(glow);
+
+      // esfera invisible mas grande: es el blanco del cursor (facil de apuntar)
+      const hit = document.createElement('a-sphere');
+      hit.setAttribute('radius', 0.27);
+      hit.setAttribute('class', 'clk-node');
+      hit.setAttribute('material', 'shader: flat; opacity: 0; transparent: true; depthWrite: false');
+      e.appendChild(hit);
+
+      const lb = document.createElement('a-text');
+      lb.setAttribute('value', n.label);
+      lb.setAttribute('position', '0 -0.27 0');
+      lb.setAttribute('align', 'center');
+      lb.setAttribute('color', color);
+      lb.setAttribute('width', 2.3);
+      lb.setAttribute('opacity', 0.95);
+      e.appendChild(lb);
+
+      el.appendChild(e);
+      n.coreEl = core; n.glowEl = glow; n.labelEl = lb;
+
+      hit.addEventListener('mouseenter', () => this.setHover(n.id));
+      hit.addEventListener('mouseleave', () => { if (this.hoverId === n.id) this.setHover(null); });
+      hit.addEventListener('click', () => selectNode(n.id));
+    });
+
+    /* ---- aro del nodo seleccionado ---- */
+    const halo = document.createElement('a-entity');
+    halo.setAttribute('geometry', 'primitive: sphere; radius: 0.3; segmentsWidth: 12; segmentsHeight: 8');
+    halo.setAttribute('material', 'color: #ffffff; wireframe: true; transparent: true; opacity: 0.6; shader: flat');
+    halo.setAttribute('animation', 'property: rotation; to: 0 360 0; dur: 6000; loop: true; easing: linear');
+    halo.setAttribute('visible', false);
+    el.appendChild(halo);
+    this.halo = halo;
+
+    this.refresh();
+  },
+
+  setHover: function(id) {
+    if (this.hoverId === id) return;
+    this.hoverId = id;
+    this.refresh();
+  },
+
+  setSelected: function(id) {
+    this.selId = id;
+    this.refresh();
+  },
+
+  refresh: function() {
+    const id = this.hoverId || this.selId;
+    const sel = id ? this.byId[id] : null;
+    const selColor = sel ? CAPAS[sel.capa].color : null;
+    this.anyActive = !!sel;
+
+    this.edges.forEach(e => {
+      const act = !!sel && (e.a === id || e.b === id);
+      e.active = act;
+      if (act) {
+        e.from = id;
+        e.to = (e.a === id) ? e.b : e.a;
+        e.actColor.set(selColor);
+      }
+      const m = e.mesh.material;
+      m.opacity = act ? 0.9 : (sel ? 0.05 : 0.4);
+      m.color.set(act ? selColor : '#2a4a7a');
+      const s = act ? 2.4 : 1;
+      e.mesh.scale.set(s, 1, s);
+    });
+
+    NODOS.forEach(n => {
+      const isSel = !!sel && n.id === id;
+      const isNb = !!sel && sel.vecinos.has(n.id);
+      const dim = !!sel && !isSel && !isNb;
+      n.coreEl.setAttribute('material', 'opacity', dim ? 0.15 : 1);
+      n.coreEl.setAttribute('material', 'emissiveIntensity', isSel ? 1.3 : 0.7);
+      n.glowEl.setAttribute('material', 'opacity', isSel ? 0.45 : (dim ? 0.02 : 0.12));
+      n.glowEl.setAttribute('scale', isSel ? '1.5 1.5 1.5' : '1 1 1');
+      n.labelEl.setAttribute('opacity', dim ? 0.15 : 0.95);
+    });
+
+    this.pAmb.mat.opacity = this.anyActive ? 0.3 : 0.95;
+
+    if (this.selId) {
+      const p = this.byId[this.selId].pos;
+      this.halo.setAttribute('position', p.x + ' ' + p.y + ' 0');
+      this.halo.setAttribute('visible', true);
+    } else {
+      this.halo.setAttribute('visible', false);
+    }
+  },
+
+  tick: function(time, delta) {
+    const dt = Math.min(delta || 16, 100) / 16;
+    const amb = this.pAmb, act = this.pAct;
+    amb.n = 0; act.n = 0;
+
+    for (let i = 0; i < this.edges.length; i++) {
+      const e = this.edges[i];
+      const a = e.active;
+      const P0 = a ? this.byId[e.from].pos : e.A.pos;
+      const P1 = a ? this.byId[e.to].pos : e.B.pos;
+      const c = a ? e.actColor : e.color;
+      const tg = a ? act : amb;
+      const mult = a ? 2.5 : 1;
+      for (let j = 0; j < e.parts.length; j++) {
+        const p = e.parts[j];
+        p.t = (p.t + p.speed * dt * mult) % 1;
+        const k = tg.n * 3;
+        tg.pos[k]     = P0.x + (P1.x - P0.x) * p.t;
+        tg.pos[k + 1] = P0.y + (P1.y - P0.y) * p.t;
+        tg.pos[k + 2] = 0.02;
+        tg.col[k] = c.r; tg.col[k + 1] = c.g; tg.col[k + 2] = c.b;
+        tg.n++;
+      }
+    }
+
+    [amb, act].forEach(b => {
+      b.geo.setDrawRange(0, b.n);
+      b.geo.attributes.position.needsUpdate = true;
+      b.geo.attributes.color.needsUpdate = true;
+    });
+  }
+});
+
+/* =========================================================
+   ESTADO + PANTALLAS
+   ========================================================= */
+const STATE = { pantalla: 'intro', nodo: null, tab: 'exp' };
+const $ = id => document.getElementById(id);
+const nodoDe = id => NODOS.find(n => n.id === id);
+const red = () => $('net').components['neural-net'];
+
+function setPantalla(name) {
+  STATE.pantalla = name;
+  const explore = (name === 'explore');
+
+  $('uiIntro').setAttribute('visible', name === 'intro');
+  $('uiPanel').setAttribute('visible', explore);
+
+  // el rayo solo puede tocar los objetos de la pantalla actual
+  const selector = explore ? '.clk-node, .clk-panel' : '.clk-intro';
+  $('fuseCursor').setAttribute('raycaster', 'objects', selector);
+  $('mouseCursor').setAttribute('raycaster', 'objects', selector);
+}
+
+function setTabColors() {
+  const on  = { c: '#1e88e5', i: 0.45 };
+  const off = { c: '#37474f', i: 0.2 };
+  const a = STATE.tab === 'exp' ? on : off;
+  const b = STATE.tab === 'code' ? on : off;
+  ['color', 'emissive'].forEach(prop => {
+    $('tabExp').setAttribute('material', prop, a.c);
+    $('tabCode').setAttribute('material', prop, b.c);
+  });
+  $('tabExp').setAttribute('material', 'emissiveIntensity', a.i);
+  $('tabCode').setAttribute('material', 'emissiveIntensity', b.i);
+}
+
+function renderPanel() {
+  setTabColors();
+  const n = STATE.nodo ? nodoDe(STATE.nodo) : null;
+  if (!n) return;
+  const capa = CAPAS[n.capa];
+
+  $('panelTitle').setAttribute('text', 'value', n.label);
+  $('panelTitle').setAttribute('color', capa.color);
+  $('panelLayer').setAttribute('text', 'value', 'CAPA ' + n.capa + ' - ' + capa.nombre);
+  $('panelBar').setAttribute('material', 'color', capa.color);
+
+  if (STATE.tab === 'exp') {
+    $('panelBody').setAttribute('text', 'value', n.exp);
+    $('panelBody').setAttribute('color', '#e0e8ff');
+  } else {
+    $('panelBody').setAttribute('text', 'value', n.codigo);
+    $('panelBody').setAttribute('color', '#a5f3b5');
+  }
+
+  const nombres = Array.from(n.vecinos).map(v => nodoDe(v).label);
+  $('panelConn').setAttribute('text', 'value',
+    'Conecta con (' + nombres.length + '): ' + nombres.join(', '));
+}
+
+function selectNode(id) {
+  if (STATE.pantalla !== 'explore') return;
+  STATE.nodo = id;
+  STATE.tab = 'exp';
+  red().setSelected(id);
+  renderPanel();
+}
+
+function stepNode(dir) {
+  let idx = STATE.nodo ? NODOS.findIndex(n => n.id === STATE.nodo) : (dir > 0 ? -1 : 0);
+  idx = (idx + dir + NODOS.length) % NODOS.length;
+  selectNode(NODOS[idx].id);
+}
+
+function setTab(t) {
+  if (!STATE.nodo) return;
+  STATE.tab = t;
+  renderPanel();
+}
+
+function goIntro() {
+  STATE.nodo = null;
+  STATE.tab = 'exp';
+  red().setSelected(null);
+  $('panelTitle').setAttribute('text', 'value', 'SELECCIONA UN NODO');
+  $('panelTitle').setAttribute('color', '#6ee8ff');
+  $('panelLayer').setAttribute('text', 'value', '');
+  $('panelBar').setAttribute('material', 'color', '#6ee8ff');
+  $('panelBody').setAttribute('text', 'value',
+    'Mira una esfera durante 1 segundo para ver aqui que concepto tecnico representa, su codigo y con que otros conceptos se conecta.');
+  $('panelBody').setAttribute('color', '#e0e8ff');
+  $('panelConn').setAttribute('text', 'value', '');
+  setTabColors();
+  setPantalla('intro');
+}
+
+function bindClick(id, fn) {
+  const el = $(id);
+  if (!el) return;
+  el.addEventListener('click', fn);
+}
+
+/* =========================================================
+   GIROSCOPIO (permiso + diagnostico) y MODO GAFAS (estereo)
+   ========================================================= */
+const esMovil = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+let STEREO = false;
+const gyro = () => $('rig').components['gyro-rig'];
+
+function estado(txt, tipo) {
+  const el = $('vrStatus');
+  el.textContent = txt;
+  el.className = tipo || '';
+}
+
+function verificarGiroscopio(ms) {
+  setTimeout(() => {
+    const g = gyro();
+    if (g && g.hayDatos) {
+      estado('Giroscopio activo (' + g.fuente + '). Mueve el celular para mirar.', 'ok');
+      return;
+    }
+    // Plan B: Generic Sensor API
+    if (g && g.iniciarSensor()) {
+      estado('Probando sensor alternativo...');
+      setTimeout(() => {
+        if (g.hayDatos) { estado('Giroscopio activo (sensor). Mueve el celular para mirar.', 'ok'); return; }
+        diagnostico();
+      }, 1500);
+      return;
+    }
+    diagnostico();
+  }, ms);
+}
+
+function diagnostico() {
+  let msg = 'No llegan datos del giroscopio. ';
+  if (!window.isSecureContext) {
+    msg += 'Chrome lo bloquea en paginas sin HTTPS (ahora: ' + location.protocol + '). Abre la pagina desde https:// (GitHub Pages, Netlify) o localhost.';
+  } else if (window.top !== window.self) {
+    msg += 'La pagina esta dentro de un marco (vista previa): abrela en su propia pestana.';
+  } else if (location.protocol === 'file:' || location.protocol === 'content:') {
+    msg += 'Abrir el archivo directo desde el celular no da sensores: sube la pagina a un hosting https.';
+  } else {
+    msg += 'Revisa Ajustes de Android > Ubicacion/Sensores (no estar en ahorro de bateria) y Chrome > Sensores de movimiento: Permitir. Si el celular no tiene giroscopio no hay solucion por software.';
+  }
+  estado(msg, 'warn');
+}
+
+async function activarGiroscopio() {
+  estado('Pidiendo permiso del sensor...');
+  try {
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+      const r = await DeviceOrientationEvent.requestPermission();
+      if (r !== 'granted') {
+        const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        if (ios) {
+          estado('Permiso denegado. En iPhone: Ajustes > Safari > Movimiento y orientacion.', 'warn');
+        } else {
+          estado('Chrome tiene el permiso de movimiento DENEGADO para esta pagina. Tocalo en el candado/i de la barra > Permisos > Sensores de movimiento: Permitir (o borra los datos del sitio en Chrome > Configuracion > Configuracion de sitios). Luego recarga y toca ACTIVAR otra vez.', 'warn');
+        }
+        return;
+      }
+    }
+  } catch (e) {
+    estado('No se pudo pedir el permiso: ' + e.message, 'warn');
+    return;
+  }
+  verificarGiroscopio(2000);
+}
+
+function parcharRender() {
+  const r = escena.renderer;
+  if (!r || r.__stereoPatched) return;
+  const orig = r.render.bind(r);
+  const stereo = new THREE.StereoCamera();
+  stereo.aspect = 0.5;
+  const size = new THREE.Vector2();
+  r.render = function(scene, camera) {
+    if (!STEREO || (r.xr && r.xr.isPresenting)) return orig(scene, camera);
+    try {
+      r.getSize(size);
+      camera.updateMatrixWorld();
+      stereo.update(camera);
+      const w = size.x / 2, h = size.y;
+      r.setScissorTest(true);
+      r.setViewport(0, 0, w, h);  r.setScissor(0, 0, w, h);  orig(scene, stereo.cameraL);
+      r.setViewport(w, 0, w, h);  r.setScissor(w, 0, w, h);  orig(scene, stereo.cameraR);
+      r.setScissorTest(false);
+      r.setViewport(0, 0, size.x, size.y);
+    } catch (err) {
+      console.error('[gafas] error de render, vuelvo a vista normal', err);
+      STEREO = false;
+      document.body.classList.remove('gafas');
+      r.setScissorTest(false);
+      orig(scene, camera);
+    }
+  };
+  r.__stereoPatched = true;
+}
+
+function setGafas(on) {
+  STEREO = on;
+  document.body.classList.toggle('gafas', on);
+  const de = document.documentElement;
+  try {
+    if (on) {
+      const p = de.requestFullscreen ? de.requestFullscreen()
+              : (de.webkitRequestFullscreen ? de.webkitRequestFullscreen() : null);
+      if (p && p.catch) p.catch(() => {});
+      if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape').catch(() => {});
+      }
+    } else {
+      if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen();
+      if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
+    }
+  } catch (e) { /* algunos navegadores no soportan fullscreen/lock */ }
+  setTimeout(() => window.dispatchEvent(new Event('resize')), 300);
+}
+
+function arrancar() {
+  $('starfield').setAttribute('starfield', '');
+  $('floor').setAttribute('grid-floor', '');
+
+  $('introSub').setAttribute('text', 'value',
+    NODOS.length + ' nodos  ·  ' + red().edges.length + ' conexiones  ·  5 capas');
+
+  bindClick('btnIniciar', () => setPantalla('explore'));
+  bindClick('tabExp',  () => setTab('exp'));
+  bindClick('tabCode', () => setTab('code'));
+  bindClick('btnInicio', goIntro);
+  bindClick('btnPrev', () => stepNode(-1));
+  bindClick('btnNext', () => stepNode(1));
+
+  parcharRender();
+  $('btnGyro').addEventListener('click', activarGiroscopio);
+  $('btnCentrar').addEventListener('click', () => { if (gyro()) gyro().recentrar(); });
+  $('btnGafas').addEventListener('click', () => {
+    setGafas(true);
+    if (gyro()) gyro().recentrar();
+  });
+  $('btnSalirGafas').addEventListener('click', () => setGafas(false));
+
+  if (esMovil) {
+    estado('Toca ACTIVAR GIROSCOPIO (en iPhone es obligatorio).');
+    verificarGiroscopio(2500);
+  } else {
+    estado('Computador: arrastra con el mouse para mirar. El giroscopio solo existe en el celular.');
+  }
+
+  setPantalla('intro');
+  setTimeout(() => $('loading').classList.add('hidden'), 800);
+}
+
+/* La escena se inserta DESPUES de registrar los componentes */
+document.body.appendChild(document.importNode($('tplEscena').content, true));
+const escena = document.querySelector('a-scene');
+if (escena.hasLoaded) arrancar();
+else escena.addEventListener('loaded', arrancar);
+}
+
+/* =========================================================
+   CARGADOR DE A-FRAME: prueba varias fuentes en orden
+   1) aframe.min.js local (misma carpeta)  2) CDNs
+   ========================================================= */
+(function() {
+  const fuentes = [
+    'aframe.min.js',
+    'https://aframe.io/releases/1.6.0/aframe.min.js',
+    'https://cdn.jsdelivr.net/npm/aframe@1.7.1/dist/aframe.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/aframe/1.0.1/aframe.min.js'
+  ];
+  let i = 0;
+  function probar() {
+    if (window.AFRAME) { iniciar(); return; }
+    if (i >= fuentes.length) {
+      document.getElementById('loadingMsg').textContent =
+        'NO SE PUDO CARGAR A-FRAME. Pon aframe.min.js junto a este archivo.';
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = fuentes[i++];
+    s.onload = () => { window.AFRAME ? iniciar() : probar(); };
+    s.onerror = probar;
+    document.head.appendChild(s);
+  }
+  probar();
+})();
+</script>
+</body>
+</html>
